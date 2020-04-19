@@ -1,0 +1,265 @@
+---
+title: "2011 Census of India"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    css: styles.css
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library("flexdashboard")
+library("dplyr")
+library("leaflet")
+library("shinythemes")
+library("shiny")
+library("ggplot2")
+library("gganimate")
+library("hrbrthemes")
+library("viridis")
+library("plotly")
+library("gifski")
+library("DT")
+library("reshape2")
+library("formattable")
+
+states <- geojsonio::geojson_read("Indian_States.geojson", what = "sp")
+data <- read.csv("Pop2.csv", header=TRUE)
+decadal_pop <- read.csv("Decadal_Pop.csv", header=TRUE)
+language <- read.csv('language.csv', header = TRUE)
+religion <- read.csv('religion.csv', header = TRUE)
+summary <- read.csv('summary.csv', header = TRUE, check.names = FALSE) 
+literacyRate <- read.csv('LiteracyRate.csv', header=TRUE)
+dd = melt(literacyRate, id=c("Year"))
+names(dd)[3] <- "Literacy Rate"
+names(dd)[2] <- "Category"
+
+states$Population <- data$Population
+states$`Sex Ratio` <- data$SexRatio
+states$`Literacy Rate` <- data$LiteracyRate
+states$Density <- data$Density
+states$State <- data$State
+data$RuralPopulationPercentage <- (data$RuralPopulation/data$Population)*100
+data$UrbanPopulationPercentage <- 100-data$RuralPopulationPercentage
+states$`Rural Population Percentage` <- data$RuralPopulationPercentage
+states$`Urban Population Percentage` <- data$UrbanPopulationPercentage
+states$`Rural Population` <- data$RuralPopulation
+states$`Urban Population` <- data$UrbanPopulation
+states$`Rural Population Percentage`<- formattable(states$`Rural Population Percentage`, digits = 2, format = "f")
+states$`Urban Population Percentage`<- formattable(states$`Urban Population Percentage`, digits = 2, format = "f")
+gender <- c("Male", "Female")
+mvsf_population <- c(623724568/1000000, 586469294/1000000)
+text <- c("623.724568 million", "586.469294 million")
+MalesvsFemales <- data.frame(gender, mvsf_population, text)
+PopulationBins <- c(0, 10, 20, 50, 200, 500, 1000, 1250)
+DensityBins <- c(10, 500, 1000, 3000, 5000, 7000, 9000, 10000, 13000)
+RuralPopPercentBins <- c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90)
+UrbanPopPercentBins <- c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
+SexRatioBins <- c(600, 650, 700, 750, 800, 850, 900, 950, 1000, 1100)
+LiteracyRateBins <- c(60, 65, 70, 75, 80, 85, 90, 95, 100)
+
+labels <- sprintf(
+  "<strong>%s</strong><br/>
+  Population - %g million<br/>
+  Sex Ratio - %g females/1000 males<br/>
+  Literacy Rate - %g (in percent)<br/>
+  Density - %g (1/km sq.)<br/>
+  Urban Population Percentage - %g <br />
+  Rural Population Percentage - %g <br />"
+  ,
+  states$State, (states$Population/1000000), states$`Sex Ratio`, states$`Literacy Rate`, states$Density, states$`Urban Population Percentage` , states$`Rural Population Percentage`
+) %>% lapply(htmltools::HTML)
+```
+Map Visualization
+=====================================
+
+Column {data-width=200 .sidebar}
+-----------------------------------------------------------------------
+
+### Options
+
+```{r}
+
+selectInput("param","Select a map parameter", choices=c("Population", "Density", "Literacy Rate", "Sex Ratio", "Rural Population Percentage", "Urban Population Percentage"))
+
+choice <- reactive({
+		input$param
+	})
+
+```
+
+Column {data-width=800}
+-----------------------------------------------------------------------
+
+### Map of India
+
+```{r}
+
+renderLeaflet({
+	
+
+	abc <- choice()
+	if(abc == "Population") {
+		 title <- "Population (in millions)"
+		 pal <- colorBin("YlOrRd", domain = states[[`abc`]], bins=PopulationBins)
+	} else if(abc == "Sex Ratio") {
+		 title <- "No of females per 1000 males"
+		 	pal <- colorBin("YlOrRd", domain = states[[`abc`]], bins=SexRatioBins)
+
+	} else if(abc == "Literacy Rate") {
+		 title <- "Literacy Rate (percentage)"
+		 	pal <- colorBin("YlOrRd", domain = states[[`abc`]], bins=LiteracyRateBins)
+
+	} else if(abc == "Density") {
+		 title <- "Density (1/km sq)"
+		 	pal <- colorBin("YlOrRd", domain = states[[`abc`]], bins=DensityBins)
+
+	} else if(abc == "Rural Population Percentage") {
+		 title <- "Rural Population Percentage"
+		 	pal <- colorBin("YlOrRd", domain = states[[`abc`]], bins=RuralPopPercentBins)
+
+	} else if(abc == "Urban Population Percentage") {
+		title <- "Urban Population Percentage"
+			pal <- colorBin("YlOrRd", domain = states[[`abc`]], bins=UrbanPopPercentBins)
+
+	}
+	m <- leaflet(states) %>%  
+		addProviderTiles("MapBox", options = providerTileOptions(
+			id = "mapbox.light",
+			accessToken = Sys.getenv('pk.eyJ1Ijoicm9oYW5iaHV0YW5pMTk5MyIsImEiOiJjazh2c25meTQwa3NlM2ltd21udG14OW9nIn0.2SWvz-MXlpKIcsHxKkxDvA'))
+		) %>% addPolygons(
+				weight = 2,
+				opacity = 1,
+				color = ~colorNumeric("YlOrRd", states[[`abc`]])(states[[`abc`]]),
+				dashArray = "3",
+				fillOpacity = 0.7,
+				highlight = highlightOptions(
+				weight = 5,
+				color = "#666",
+				dashArray = "",
+				fillOpacity = 0.7,
+				bringToFront = TRUE),
+				label = labels,
+				labelOptions = labelOptions(
+				style = list("font-weight" = "normal", padding = "3px 8px"),
+				textsize = "15px",
+				direction = "auto")
+			) %>% addLegend(pal = pal, values = ~states[[`abc`]], opacity = 0.7, title = title,
+					position = "bottomright")	
+	})
+```
+
+Population Trends {data-orientation=rows}
+=====================================
+
+Column {.sidebar data-width=500}
+-------------------------------------
+    
+### Indian Population Trend (1901 - 2011)
+    
+```{r}
+
+renderPlotly({
+		plot_ly(decadal_pop, x = ~Year, y = ~Population/1000000, type = 'bar',
+        marker = list(color = '#D22121',
+                      line = list(color = 'black',
+                                  width = 1.5)), hoverinfo='text', text=~paste("Population:", Population/1000000, "<br> Year:", Year)) %>% 
+    layout(xaxis = list(title = "Year"),
+           yaxis = list(title = "Population (in millions)"))
+	})
+```
+   
+Row
+-------------------------------------
+   
+### Male Population - 2011
+
+```{r}
+
+valueBox(paste(MalesvsFemales$mvsf_population[MalesvsFemales$gender == "Male"], "million"), icon="fa-male")
+```   
+
+Row
+-------------------------------------
+
+### Female Population - 2011
+
+```{r}
+
+valueBox(paste(MalesvsFemales$mvsf_population[MalesvsFemales$gender == "Female"], "million"), icon="fa-female")
+```   
+
+Row
+-------------------------------------
+
+### Languages by number of speakers in India - 2011 
+    
+```{r}
+
+renderPlotly({
+		plot_ly(language, x = ~Language, y = ~Speakers, type = 'bar', text = ~Text,
+        marker = list(color = rgb(0.1,0.4,0.5,0.7),
+                      line = list(color = 'blue',
+                                  width = 1.5))) %>% 
+								  layout(xaxis = list(title = "Language"),
+         yaxis = list(title = "Speakers (in millions)"))
+	})
+```
+
+Other graphs and charts
+=====================================
+
+Column {data-width=400}
+-------------------------------------
+    
+### Major religious groups in India - 2011 
+    
+```{r}
+
+renderPlotly({
+		religion <- read.csv('religion.csv', header = TRUE)
+ 
+fig <- plot_ly(religion, labels = ~Religion, values = ~Percentage, type = 'pie',
+        textposition = 'inside',
+        textinfo = 'label+percent',
+        insidetextfont = list(color = '#FFFFFF'),
+        hoverinfo = 'text',
+        text = ~paste('Religion:', Religion, '<br>Population Percentage:', Percentage, '%'),
+        marker = list(colors = colors,
+                      line = list(color = '#FFFFFF', width = 1)))
+fig <- fig %>% layout(title = 'Major religious groups in India 2011',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+
+fig
+	})
+```
+
+### Literacy Rate Trends (1901 - 2011)
+
+```{r}
+p <- ggplot(dd) +
+	theme_minimal() +
+	theme(
+		panel.grid = element_blank(),
+		panel.grid.major.y = element_line(color = "white"),
+		panel.ontop = TRUE
+	) +
+ 	geom_line(aes(x=Year, y=`Literacy Rate`, colour=Category), size=1) + 
+	geom_point(aes(x=Year, y=`Literacy Rate`))+
+	scale_colour_manual(values=c("red","green","blue"))+
+	ylab("Literacy Rate (in percent)")
+	ggplotly(p)
+```
+
+Column {data-width=600}
+-------------------------------------
+    
+### Population distribution in India by states - 2011 
+    
+```{r}
+
+datatable(summary)
+```
+ 
